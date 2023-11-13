@@ -1,6 +1,6 @@
 galaxy_info:
   author: jedimt
-  role_name: huggingface
+  role_name: huggingbench
   description: Install HuggingBench
 
   license: MIT

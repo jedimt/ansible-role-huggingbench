@@ -1,0 +1,21 @@
+galaxy_info:
+  author: jedimt
+  role_name: huggingface
+  description: Install HuggingBench
+
+  license: MIT
+
+  min_ansible_version: "7"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+
+  galaxy_tags:
+    - linux
+    - huggingbench
+    - ai
+    - benchmark
+
+dependencies: []

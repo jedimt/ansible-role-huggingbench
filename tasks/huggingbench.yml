@@ -1,0 +1,125 @@
+---
+
+# Upgrade pip
+- name: Upgrade to latest pip build
+  ansible.builtin.pip:
+    name: pip
+    extra_args: --upgrade
+
+# Install virtualenv python module
+- name: Install Python virtualenv
+  ansible.builtin.pip:
+    name: virtualenv
+
+# Add current user to docker user group
+- name: Add current user to Docker group
+  ansible.builtin.user:
+    name: "{{ lookup('env', 'USER') }}"
+    groups: docker
+    append: true
+
+# Install APT packages we need
+- name: Install required APT packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+    autoremove: true
+  loop: "{{ huggingbench_apt_packages }}"
+  become: true
+
+# Create directory for huggingbench repo
+- name: Create directory for repo
+  ansible.builtin.file:
+    path: "{{ huggingbench_repo_dest_folder }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user_id }}"
+    recurse: true
+
+# Check for the repo
+- name: Check for existing huggingbench repo
+  ansible.builtin.stat:
+    path: "{{ huggingbench_repo_dest_folder }}/.git"
+  register: huggingface_repo_stat
+  tags: repo
+
+# Clone the huggingbench repo - This task makes the playbook not idempotent
+# Later tasks make changes to the local Irepo and running the playbook again will cause this task to fail
+- name: Clone huggingbench repository
+  ansible.builtin.git:
+    repo: "{{ huggingbench_repo_url }}"
+    dest: "{{ huggingbench_repo_dest_folder }}"
+    version: "{{ huggingbench_github_version }}"
+    recursive: true
+  when: not huggingface_repo_stat.stat.exists
+
+# Clone the huggingbench repo - force overwrite of any local changes
+- name: Clone huggingbench repository (force overwrite local changes)
+  ansible.builtin.git:
+    repo: "{{ huggingbench_repo_url }}"
+    dest: "{{ huggingbench_repo_dest_folder }}"
+    version: "{{ huggingbench_github_version }}"
+    recursive: true
+    force: true
+  when: huggingbench_pull_repo_force
+
+# Normally these images are built by the build-all.sh script in the HB repo
+# For the sake of idempotency this role does not execute that script, but instead
+# builds the required containers using the docker module.
+
+# Look for existing Docker images required by huggingbench
+- name: Inventory existing Docker images
+  community.docker.docker_image_info:
+    name:
+      - optimum
+      - openvino
+      - polygraphy
+      - tritonserver
+  register: docker_image_list
+  tags: task_image_list
+
+- name: Build Optimum image (this will take awhile)
+  community.docker.docker_image:
+    name: optimum
+    build:
+      dockerfile: "{{ huggingbench_repo_dest_folder }}/docker/optimum/Dockerfile.gpu"
+      path: "{{ huggingbench_repo_dest_folder }}/docker/optimum/"
+      network: "host"
+    source: build
+  when: "'optimum' not in docker_image_list.images"
+
+- name: Build openvino image
+  community.docker.docker_image:
+    name: openvino
+    build:
+      path: "{{ huggingbench_repo_dest_folder }}/docker/openvino/"
+      network: "host"
+    source: build
+  when: "'openvino' not in docker_image_list.images"
+
+- name: Build polygraphy image
+  community.docker.docker_image:
+    name: polygraphy
+    build:
+      path: "{{ huggingbench_repo_dest_folder }}/docker/polygraphy/"
+      network: "host"
+    source: build
+  when: "'polygraphy' not in docker_image_list.images"
+
+# Install requirements for huggingbench repository
+- name: Install package with pip using an extra index URL
+  ansible.builtin.pip:
+    virtualenv: "{{ huggingbench_repo_dest_folder }}/venv"
+    virtualenv_python: "{{ venv_python_version }}"
+    editable: true
+    name: "{{ huggingbench_repo_dest_folder }}/"
+    extra_args: --extra-index-url https://pypi.ngc.nvidia.com
+
+- name: Pull NVIDIA Triton inference server image (this will take awhile)
+  community.docker.docker_image:
+    name: "nvcr.io/nvidia/tritonserver:{{ huggingbench_triton_version }}"
+    source: pull
+    pull:
+      platform: amd64
+  tags: task_pull_triton
+  when: huggingbench_pull_triton

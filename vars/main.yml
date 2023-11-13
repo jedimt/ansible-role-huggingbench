@@ -1,0 +1,10 @@
+---
+# vars file for ansible-role-huggingbench
+
+# huggingbench github
+huggingbench_repo_url: 'https://github.com/huggingbench/huggingbench.git'
+
+# APT packages to install before huggingbench
+huggingbench_apt_packages:
+  - pip
+  - python3.10-venv
